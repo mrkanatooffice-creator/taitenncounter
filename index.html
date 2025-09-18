@@ -6,6 +6,8 @@
     <title>来店カウンター</title>
     <!-- Tailwind CSSを読み込み -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js（グラフ描画ライブラリ）を読み込み -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         /* ユーザーが誤ってテキストを選択してしまうのを防ぐ */
         body, .user-select-none {
@@ -25,58 +27,51 @@
 </head>
 <body class="bg-gray-100 flex items-center justify-center min-h-screen font-sans py-8">
 
-    <div class="bg-white rounded-2xl shadow-xl p-6 md:p-8 w-full max-w-2xl mx-4 text-center">
+    <div class="bg-white rounded-2xl shadow-xl p-6 md:p-8 w-full max-w-4xl mx-4 text-center">
         <!-- ヘッダー -->
         <header class="mb-8">
             <h1 class="text-3xl font-bold text-gray-800">来店カウンター</h1>
-            <p class="text-gray-500 mt-1">参加人数をカウントします</p>
+            <p class="text-gray-500 mt-1">参加人数をリアルタイムでカウントし、1時間ごとに自動で記録します</p>
         </header>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <!-- カウンターセクション -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
             <!-- 射的カウンター -->
             <div class="border rounded-xl p-4">
-                <h2 class="text-2xl font-semibold text-gray-700 mb-3">射的</h2>
-                <!-- カウント表示 -->
+                <h2 class="text-2xl font-semibold text-gray-700 mb-3">射的 (累計)</h2>
                 <div class="mb-4">
-                    <div id="shateki-count-display" class="text-8xl font-bold text-blue-600 user-select-none tracking-tight">
-                        0
-                    </div>
+                    <div id="shateki-count-display" class="text-8xl font-bold text-blue-600 user-select-none tracking-tight">0</div>
                 </div>
-                <!-- 操作ボタン -->
                 <div class="grid grid-cols-2 gap-4">
-                    <button id="shateki-decrement" class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-xl p-4 text-4xl active-scale focus:outline-none focus:ring-4 focus:ring-yellow-300 disabled:opacity-50 disabled:cursor-not-allowed">
-                        -
-                    </button>
-                    <button id="shateki-increment" class="bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-xl p-4 text-4xl active-scale focus:outline-none focus:ring-4 focus:ring-blue-300">
-                        +
-                    </button>
+                    <button id="shateki-decrement" class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-xl p-4 text-4xl active-scale focus:outline-none focus:ring-4 focus:ring-yellow-300 disabled:opacity-50 disabled:cursor-not-allowed">-</button>
+                    <button id="shateki-increment" class="bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-xl p-4 text-4xl active-scale focus:outline-none focus:ring-4 focus:ring-blue-300">+</button>
                 </div>
             </div>
 
             <!-- 輪投げカウンター -->
             <div class="border rounded-xl p-4">
-                <h2 class="text-2xl font-semibold text-gray-700 mb-3">輪投げ</h2>
-                <!-- カウント表示 -->
+                <h2 class="text-2xl font-semibold text-gray-700 mb-3">輪投げ (累計)</h2>
                 <div class="mb-4">
-                    <div id="wanage-count-display" class="text-8xl font-bold text-green-600 user-select-none tracking-tight">
-                        0
-                    </div>
+                    <div id="wanage-count-display" class="text-8xl font-bold text-green-600 user-select-none tracking-tight">0</div>
                 </div>
-                <!-- 操作ボタン -->
                 <div class="grid grid-cols-2 gap-4">
-                    <button id="wanage-decrement" class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-xl p-4 text-4xl active-scale focus:outline-none focus:ring-4 focus:ring-yellow-300 disabled:opacity-50 disabled:cursor-not-allowed">
-                        -
-                    </button>
-                    <button id="wanage-increment" class="bg-green-500 hover:bg-green-600 text-white font-bold rounded-xl p-4 text-4xl active-scale focus:outline-none focus:ring-4 focus:ring-green-300">
-                        +
-                    </button>
+                    <button id="wanage-decrement" class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-xl p-4 text-4xl active-scale focus:outline-none focus:ring-4 focus:ring-yellow-300 disabled:opacity-50 disabled:cursor-not-allowed">-</button>
+                    <button id="wanage-increment" class="bg-green-500 hover:bg-green-600 text-white font-bold rounded-xl p-4 text-4xl active-scale focus:outline-none focus:ring-4 focus:ring-green-300">+</button>
                 </div>
+            </div>
+        </div>
+
+        <!-- グラフセクション -->
+        <div class="border-t pt-6">
+            <h2 class="text-2xl font-semibold text-gray-700 mb-4">時間帯別 来店人数</h2>
+            <div class="p-4 border rounded-lg bg-gray-50">
+                <canvas id="hourly-chart"></canvas>
             </div>
         </div>
         
         <!-- リセットボタン -->
-        <div class="mt-10 border-t pt-6">
-            <button id="reset" class="w-full bg-red-500 hover:bg-red-600 text-white font-semibold py-3 rounded-lg text-lg active-scale focus:outline-none focus:ring-4 focus:ring-red-300 flex items-center justify-center gap-2">
+        <div class="mt-8 border-t pt-6">
+            <button id="reset-all" class="w-full bg-red-500 hover:bg-red-600 text-white font-semibold py-3 rounded-lg text-lg active-scale focus:outline-none focus:ring-4 focus:ring-red-300 flex items-center justify-center gap-2">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-arrow-counterclockwise" viewBox="0 0 16 16">
                     <path fill-rule="evenodd" d="M8 3a5 5 0 1 1-4.546 2.914.5.5 0 0 0-.908-.417A6 6 0 1 0 8 2z"/>
                     <path d="M8 4.466V.534a.25.25 0 0 0-.41-.192L5.23 2.308a.25.25 0 0 0 0 .384l2.36 1.966A.25.25 0 0 0 8 4.466z"/>
@@ -87,66 +82,166 @@
     </div>
 
     <script>
-        // DOM要素を取得
+        // --- DOM要素の取得 ---
         const shatekiCountDisplay = document.getElementById('shateki-count-display');
         const shatekiIncrementButton = document.getElementById('shateki-increment');
         const shatekiDecrementButton = document.getElementById('shateki-decrement');
-
         const wanageCountDisplay = document.getElementById('wanage-count-display');
         const wanageIncrementButton = document.getElementById('wanage-increment');
         const wanageDecrementButton = document.getElementById('wanage-decrement');
+        const resetAllButton = document.getElementById('reset-all');
+        const chartCanvas = document.getElementById('hourly-chart').getContext('2d');
+
+        // --- 状態変数 ---
+        let shatekiCount = 0; // 射的の累計カウント
+        let wanageCount = 0;  // 輪投げの累計カウント
+        // hourlyData: 各時間帯の純増数を記録 { "9": {shateki: 10, wanage: 5}, "10": {shateki: 12, wanage: 8} }
+        let hourlyData = {}; 
+        let chartInstance = null;
         
-        const resetButton = document.getElementById('reset');
+        // 自動記録用の変数
+        let lastRecordedHour = new Date().getHours();
+        let lastHourShatekiTotal = 0;
+        let lastHourWanageTotal = 0;
 
-        // カウントの初期値を設定
-        let shatekiCount = 0;
-        let wanageCount = 0;
+        // --- 関数定義 ---
 
-        // 表示を更新する関数
-        function updateDisplays() {
+        // カウンターの表示を更新する関数
+        function updateCounterDisplays() {
             shatekiCountDisplay.textContent = shatekiCount;
             wanageCountDisplay.textContent = wanageCount;
-            
-            // カウントが0のときはマイナスボタンを無効化
             shatekiDecrementButton.disabled = shatekiCount === 0;
             wanageDecrementButton.disabled = wanageCount === 0;
         }
+        
+        // グラフを更新する関数
+        function updateChart() {
+            if (chartInstance) {
+                chartInstance.destroy(); // 既存のグラフがあれば破棄
+            }
 
-        // --- 射的のイベントリスナー ---
+            const sortedHours = Object.keys(hourlyData).sort((a, b) => parseInt(a) - parseInt(b));
+            const labels = sortedHours.map(hour => `${hour}時台`);
+            const shatekiData = sortedHours.map(hour => hourlyData[hour].shateki);
+            const wanageData = sortedHours.map(hour => hourlyData[hour].wanage);
+
+            chartInstance = new Chart(chartCanvas, {
+                type: 'line', // グラフの種類を折れ線グラフに
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: '射的',
+                            data: shatekiData,
+                            borderColor: 'rgba(59, 130, 246, 1)', // 青色
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            fill: true,
+                            tension: 0.1
+                        },
+                        {
+                            label: '輪投げ',
+                            data: wanageData,
+                            borderColor: 'rgba(239, 68, 68, 1)', // 赤色
+                            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                            fill: true,
+                            tension: 0.1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: true // 凡例を表示
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.dataset.label}: ${context.raw} 人`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                // 整数のみ表示
+                                callback: function(value) { if (Number.isInteger(value)) { return value; } },
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // 時間が変わったかをチェックし、記録する関数
+        function autoRecord() {
+            const currentHour = new Date().getHours();
+            // 時間が切り替わった瞬間に記録
+            if (currentHour !== lastRecordedHour) {
+                // 前の時間帯の純増数を計算
+                const shatekiIncrease = shatekiCount - lastHourShatekiTotal;
+                const wanageIncrease = wanageCount - lastHourWanageTotal;
+                
+                // データが0でなければ記録
+                if (shatekiIncrease > 0 || wanageIncrease > 0) {
+                     hourlyData[lastRecordedHour] = { shateki: shatekiIncrease, wanage: wanageIncrease };
+                }
+
+                // 記録時間と累計を更新
+                lastRecordedHour = currentHour;
+                lastHourShatekiTotal = shatekiCount;
+                lastHourWanageTotal = wanageCount;
+
+                updateChart();
+            }
+        }
+
+
+        // --- イベントリスナー ---
         shatekiIncrementButton.addEventListener('click', () => {
             shatekiCount++;
-            updateDisplays();
+            updateCounterDisplays();
         });
 
         shatekiDecrementButton.addEventListener('click', () => {
             if (shatekiCount > 0) {
                 shatekiCount--;
-                updateDisplays();
+                updateCounterDisplays();
             }
         });
 
-        // --- 輪投げのイベントリスナー ---
         wanageIncrementButton.addEventListener('click', () => {
             wanageCount++;
-            updateDisplays();
+            updateCounterDisplays();
         });
 
         wanageDecrementButton.addEventListener('click', () => {
             if (wanageCount > 0) {
                 wanageCount--;
-                updateDisplays();
+                updateCounterDisplays();
             }
         });
-
-        // --- リセットボタンのイベントリスナー ---
-        resetButton.addEventListener('click', () => {
+        
+        // すべてリセットボタン
+        resetAllButton.addEventListener('click', () => {
             shatekiCount = 0;
             wanageCount = 0;
-            updateDisplays();
+            hourlyData = {};
+            lastRecordedHour = new Date().getHours();
+            lastHourShatekiTotal = 0;
+            lastHourWanageTotal = 0;
+            updateCounterDisplays();
+            updateChart();
         });
 
-        // 初期表示を更新
-        updateDisplays();
+        // --- 初期化処理 ---
+        updateCounterDisplays();
+        updateChart();
+        // 1分ごとに自動記録関数を実行
+        setInterval(autoRecord, 60000); 
     </script>
 </body>
 </html>
