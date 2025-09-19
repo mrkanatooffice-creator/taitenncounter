@@ -92,8 +92,9 @@
 
     <script type="module">
         // --- Firebase SDKのインポート ---
+        // Firebaseのバージョンをコード内で使われているものに合わせます
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, onSnapshot, setDoc, updateDoc, increment } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- DOM要素の取得 ---
@@ -132,23 +133,26 @@
         // --- Firebaseの初期化 ---
         async function initializeFirebase() {
             try {
-                // グローバル変数から設定を読み込み
-                const firebaseConfig = JSON.parse(__firebase_config);
-                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                // あなたのWebアプリのFirebase設定
+                const firebaseConfig = {
+                    apiKey: "AIzaSyAoAyE2L1wjOLgFWCEtn-aNHY3Of3Wqb3c",
+                    authDomain: "raitencounter.firebaseapp.com",
+                    projectId: "raitencounter",
+                    storageBucket: "raitencounter.appspot.com", // ドメイン名を修正
+                    messagingSenderId: "314087243190",
+                    appId: "1:314087243190:web:69ece2cd24563ddf21d517",
+                    measurementId: "G-6GHDCLP07K"
+                };
                 
                 const app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 const auth = getAuth(app);
 
-                // 認証
-                if (typeof __initial_auth_token !== 'undefined') {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
+                // GitHub Pagesなど外部で実行するため、匿名認証のみを使用
+                await signInAnonymously(auth);
 
-                // Firestoreのドキュメント参照を設定
-                counterDocRef = doc(db, `/artifacts/${appId}/public/data/counter/state`);
+                // Firestoreのドキュメント参照を設定 (パスを簡略化)
+                counterDocRef = doc(db, "counters/state");
 
                 setupOnSnapshotListener();
                 setupEventListeners();
@@ -203,7 +207,7 @@
             shatekiCountDisplay.textContent = shatekiCount;
             wanageCountDisplay.textContent = wanageCount;
             shatekiDecrementButton.disabled = shatekiCount === 0;
-            wanageDecrementButton.disabled = wanageCount === 0;
+            wanageDecrementButton.disabled = shatekiCount === 0;
         }
         
         function updateChart() {
@@ -278,6 +282,4 @@
     </script>
 </body>
 </html>
-
-
 
