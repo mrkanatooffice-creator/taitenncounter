@@ -23,11 +23,20 @@
         .active-scale:active {
             transform: scale(0.95);
         }
+        /* 接続状態を示すインジケーター */
+        #status-indicator {
+            transition: background-color 0.5s ease;
+        }
     </style>
 </head>
 <body class="bg-gray-100 flex items-center justify-center min-h-screen font-sans py-8">
 
-    <div class="bg-white rounded-2xl shadow-xl p-6 md:p-8 w-full max-w-4xl mx-4 text-center">
+    <div class="bg-white rounded-2xl shadow-xl p-6 md:p-8 w-full max-w-4xl mx-4 text-center relative">
+        <!-- 接続ステータス -->
+        <div class="absolute top-4 right-4 flex items-center gap-2 text-sm text-gray-500">
+            <div id="status-indicator" class="w-3 h-3 rounded-full bg-yellow-400"></div>
+            <span id="status-text">接続中...</span>
+        </div>
         <!-- ヘッダー -->
         <header class="mb-8">
             <h1 class="text-3xl font-bold text-gray-800">来店カウンター</h1>
@@ -81,7 +90,12 @@
         </div>
     </div>
 
-    <script>
+    <script type="module">
+        // --- Firebase SDKのインポート ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, setDoc, updateDoc, increment } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
         // --- DOM要素の取得 ---
         const shatekiCountDisplay = document.getElementById('shateki-count-display');
         const shatekiIncrementButton = document.getElementById('shateki-increment');
@@ -91,22 +105,100 @@
         const wanageDecrementButton = document.getElementById('wanage-decrement');
         const resetAllButton = document.getElementById('reset-all');
         const chartCanvas = document.getElementById('hourly-chart').getContext('2d');
+        const statusIndicator = document.getElementById('status-indicator');
+        const statusText = document.getElementById('status-text');
 
         // --- 状態変数 ---
-        let shatekiCount = 0; // 射的の累計カウント
-        let wanageCount = 0;  // 輪投げの累計カウント
-        // hourlyData: 各時間帯の純増数を記録 { "9": {shateki: 10, wanage: 5}, "10": {shateki: 12, wanage: 8} }
-        let hourlyData = {}; 
+        let shatekiCount = 0;
+        let wanageCount = 0;
+        let hourlyData = {};
         let chartInstance = null;
-        
-        // 自動記録用の変数
         let lastRecordedHour = new Date().getHours();
         let lastHourShatekiTotal = 0;
         let lastHourWanageTotal = 0;
+        let db; // Firestoreインスタンス
+        let counterDocRef; // Firestoreドキュメントへの参照
 
+        // --- 初期データ構造 ---
+        const initialData = {
+            shatekiCount: 0,
+            wanageCount: 0,
+            hourlyData: {},
+            lastRecordedHour: new Date().getHours(),
+            lastHourShatekiTotal: 0,
+            lastHourWanageTotal: 0,
+        };
+
+        // --- Firebaseの初期化 ---
+        async function initializeFirebase() {
+            try {
+                // グローバル変数から設定を読み込み
+                const firebaseConfig = JSON.parse(__firebase_config);
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                const auth = getAuth(app);
+
+                // 認証
+                if (typeof __initial_auth_token !== 'undefined') {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                // Firestoreのドキュメント参照を設定
+                counterDocRef = doc(db, `/artifacts/${appId}/public/data/counter/state`);
+
+                setupOnSnapshotListener();
+                setupEventListeners();
+                
+                // 1分ごとに自動記録関数を実行
+                setInterval(autoRecord, 60000); 
+
+            } catch (error) {
+                console.error("Firebaseの初期化に失敗しました:", error);
+                statusText.textContent = "接続エラー";
+                statusIndicator.classList.remove('bg-yellow-400');
+                statusIndicator.classList.add('bg-red-500');
+            }
+        }
+        
+        // Firestoreのリアルタイムリスナーを設定
+        function setupOnSnapshotListener() {
+            onSnapshot(counterDocRef, (doc) => {
+                if (doc.exists()) {
+                    const data = doc.data();
+                    // ローカルの状態をFirestoreのデータで更新
+                    shatekiCount = data.shatekiCount;
+                    wanageCount = data.wanageCount;
+                    hourlyData = data.hourlyData;
+                    lastRecordedHour = data.lastRecordedHour;
+                    lastHourShatekiTotal = data.lastHourShatekiTotal;
+                    lastHourWanageTotal = data.lastHourWanageTotal;
+                } else {
+                    // ドキュメントが存在しない場合は初期データで作成
+                    setDoc(counterDocRef, initialData);
+                }
+                updateUI();
+                statusText.textContent = "接続済み";
+                statusIndicator.classList.remove('bg-yellow-400');
+                statusIndicator.classList.add('bg-green-500');
+            }, (error) => {
+                console.error("データの同期に失敗しました:", error);
+                statusText.textContent = "同期エラー";
+                statusIndicator.classList.remove('bg-green-500', 'bg-yellow-400');
+                statusIndicator.classList.add('bg-red-500');
+            });
+        }
+
+        // UIを更新する（表示とグラフ）
+        function updateUI() {
+            updateCounterDisplays();
+            updateChart();
+        }
+        
         // --- 関数定義 ---
-
-        // カウンターの表示を更新する関数
         function updateCounterDisplays() {
             shatekiCountDisplay.textContent = shatekiCount;
             wanageCountDisplay.textContent = wanageCount;
@@ -114,136 +206,78 @@
             wanageDecrementButton.disabled = wanageCount === 0;
         }
         
-        // グラフを更新する関数
         function updateChart() {
             if (chartInstance) {
-                chartInstance.destroy(); // 既存のグラフがあれば破棄
+                chartInstance.destroy();
             }
-
             const sortedHours = Object.keys(hourlyData).sort((a, b) => parseInt(a) - parseInt(b));
             const labels = sortedHours.map(hour => `${hour}時台`);
             const shatekiData = sortedHours.map(hour => hourlyData[hour].shateki);
             const wanageData = sortedHours.map(hour => hourlyData[hour].wanage);
 
             chartInstance = new Chart(chartCanvas, {
-                type: 'line', // グラフの種類を折れ線グラフに
+                type: 'line',
                 data: {
                     labels: labels,
-                    datasets: [
-                        {
-                            label: '射的',
-                            data: shatekiData,
-                            borderColor: 'rgba(59, 130, 246, 1)', // 青色
-                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                            fill: true,
-                            tension: 0.1
-                        },
-                        {
-                            label: '輪投げ',
-                            data: wanageData,
-                            borderColor: 'rgba(239, 68, 68, 1)', // 赤色
-                            backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                            fill: true,
-                            tension: 0.1
-                        }
-                    ]
+                    datasets: [{
+                        label: '射的',
+                        data: shatekiData,
+                        borderColor: 'rgba(59, 130, 246, 1)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        fill: true,
+                        tension: 0.1
+                    }, {
+                        label: '輪投げ',
+                        data: wanageData,
+                        borderColor: 'rgba(239, 68, 68, 1)',
+                        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                        fill: true,
+                        tension: 0.1
+                    }]
                 },
                 options: {
                     responsive: true,
-                    maintainAspectRatio: true,
-                    plugins: {
-                        legend: {
-                            display: true // 凡例を表示
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    return `${context.dataset.label}: ${context.raw} 人`;
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            ticks: {
-                                // 整数のみ表示
-                                callback: function(value) { if (Number.isInteger(value)) { return value; } },
-                            }
-                        }
-                    }
+                    plugins: { legend: { display: true } },
+                    scales: { y: { beginAtZero: true, ticks: { callback: value => Number.isInteger(value) ? value : null } } }
                 }
             });
         }
         
-        // 時間が変わったかをチェックし、記録する関数
         function autoRecord() {
             const currentHour = new Date().getHours();
-            // 時間が切り替わった瞬間に記録
             if (currentHour !== lastRecordedHour) {
-                // 前の時間帯の純増数を計算
                 const shatekiIncrease = shatekiCount - lastHourShatekiTotal;
                 const wanageIncrease = wanageCount - lastHourWanageTotal;
                 
-                // データが0でなければ記録
+                const newHourlyData = { ...hourlyData };
                 if (shatekiIncrease > 0 || wanageIncrease > 0) {
-                     hourlyData[lastRecordedHour] = { shateki: shatekiIncrease, wanage: wanageIncrease };
+                     newHourlyData[lastRecordedHour] = { shateki: shatekiIncrease, wanage: wanageIncrease };
                 }
 
-                // 記録時間と累計を更新
-                lastRecordedHour = currentHour;
-                lastHourShatekiTotal = shatekiCount;
-                lastHourWanageTotal = wanageCount;
-
-                updateChart();
+                updateDoc(counterDocRef, {
+                    hourlyData: newHourlyData,
+                    lastRecordedHour: currentHour,
+                    lastHourShatekiTotal: shatekiCount,
+                    lastHourWanageTotal: wanageCount
+                });
             }
         }
 
-
-        // --- イベントリスナー ---
-        shatekiIncrementButton.addEventListener('click', () => {
-            shatekiCount++;
-            updateCounterDisplays();
-        });
-
-        shatekiDecrementButton.addEventListener('click', () => {
-            if (shatekiCount > 0) {
-                shatekiCount--;
-                updateCounterDisplays();
-            }
-        });
-
-        wanageIncrementButton.addEventListener('click', () => {
-            wanageCount++;
-            updateCounterDisplays();
-        });
-
-        wanageDecrementButton.addEventListener('click', () => {
-            if (wanageCount > 0) {
-                wanageCount--;
-                updateCounterDisplays();
-            }
-        });
-        
-        // すべてリセットボタン
-        resetAllButton.addEventListener('click', () => {
-            shatekiCount = 0;
-            wanageCount = 0;
-            hourlyData = {};
-            lastRecordedHour = new Date().getHours();
-            lastHourShatekiTotal = 0;
-            lastHourWanageTotal = 0;
-            updateCounterDisplays();
-            updateChart();
-        });
+        // --- イベントリスナー設定 ---
+        function setupEventListeners() {
+            shatekiIncrementButton.addEventListener('click', () => updateDoc(counterDocRef, { shatekiCount: increment(1) }));
+            shatekiDecrementButton.addEventListener('click', () => { if(shatekiCount > 0) updateDoc(counterDocRef, { shatekiCount: increment(-1) }) });
+            wanageIncrementButton.addEventListener('click', () => updateDoc(counterDocRef, { wanageCount: increment(1) }));
+            wanageDecrementButton.addEventListener('click', () => { if(wanageCount > 0) updateDoc(counterDocRef, { wanageCount: increment(-1) }) });
+            resetAllButton.addEventListener('click', () => setDoc(counterDocRef, initialData));
+        }
 
         // --- 初期化処理 ---
-        updateCounterDisplays();
-        updateChart();
-        // 1分ごとに自動記録関数を実行
-        setInterval(autoRecord, 60000); 
+        initializeFirebase();
+
     </script>
 </body>
 </html>
+
 
 
